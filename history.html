@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BE FIT | Calendar History</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">BF</div>
+          <div>
+            <h1>BE FIT</h1>
+            <p>Calendar history.</p>
+          </div>
+        </div>
+
+        <nav class="nav-list" aria-label="Primary">
+          <a href="index.html#tracker" class="nav-link">Tracker</a>
+          <a href="history.html" class="nav-link active">Calendar</a>
+          <a href="index.html#diet" class="nav-link">Diet Sheet</a>
+          <a href="index.html#progress" class="nav-link">Progress</a>
+        </nav>
+
+        <section class="profile-panel">
+          <h2>View Date</h2>
+          <label>
+            Selected date
+            <input id="selectedDate" type="date" />
+          </label>
+          <label>
+            Theme
+            <select id="themeChoice">
+              <option value="fresh">Fresh Green</option>
+              <option value="dark">Dark Focus</option>
+              <option value="sunrise">Sunrise</option>
+            </select>
+          </label>
+          <a class="primary-link" href="index.html#tracker">Add Meal</a>
+        </section>
+      </aside>
+
+      <main>
+        <section class="topbar" aria-label="Selected date summary">
+          <div>
+            <p class="eyebrow" id="selectedDateLabel">Today</p>
+            <h2>Calendar Food History</h2>
+          </div>
+          <div class="summary-strip">
+            <div>
+              <span id="calorieTotal">0</span>
+              <small>calories</small>
+            </div>
+            <div>
+              <span id="proteinTotal">0g</span>
+              <small>protein</small>
+            </div>
+            <div>
+              <span id="mealCount">0</span>
+              <small>meals</small>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel calendar-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Calendar</p>
+              <h2>Choose a date</h2>
+            </div>
+          </div>
+          <div class="calendar-head">
+            <button id="prevMonth" class="ghost-action" type="button">Prev</button>
+            <strong id="calendarMonth"></strong>
+            <button id="nextMonth" class="ghost-action" type="button">Next</button>
+          </div>
+          <div class="calendar-weekdays">
+            <span>Sun</span>
+            <span>Mon</span>
+            <span>Tue</span>
+            <span>Wed</span>
+            <span>Thu</span>
+            <span>Fri</span>
+            <span>Sat</span>
+          </div>
+          <div id="calendarGrid" class="calendar-grid"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Selected Date</p>
+              <h2>Meals & cheat meals</h2>
+            </div>
+            <button id="clearLog" class="ghost-action" type="button">Clear Date</button>
+          </div>
+          <div id="mealList" class="meal-list empty-state">No meals added yet.</div>
+        </section>
+      </main>
+    </div>
+
+    <script src="history.js"></script>
+  </body>
+</html>
