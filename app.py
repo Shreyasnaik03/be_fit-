@@ -215,6 +215,15 @@ def totals(data):
     }
 
 
+def totals_for_date(data, date_key):
+    meals = [meal for meal in data["meals"] if meal.get("date", TODAY) == date_key]
+    return {
+        "calories": sum(meal.get("calories", 0) for meal in meals),
+        "protein": sum(meal.get("protein", 0) for meal in meals),
+        "count": len(meals),
+    }
+
+
 def date_title(date_key):
     return f"Today, {date_key}" if date_key == TODAY else date_key
 
@@ -347,6 +356,7 @@ def tracker_page(data):
             <div class="summary-card"><strong>{round(plan['maintenance'])}</strong><span>Maintenance calories</span></div>
           </div>
           <div class="insight-card">{suggestion(data, plan)}</div>
+          {dashboard_calendar(data)}
         </div>
       </section>
       <section class="grid two-column">
@@ -365,6 +375,70 @@ def tracker_page(data):
       <section id="progress" class="panel progress-panel">
         <div class="panel-heading"><div><p class="eyebrow">Improvements</p><h2>Healthy lifestyle suggestions</h2></div></div>
         <div class="suggestion-grid">{suggestion_cards(data, plan)}</div>
+      </section>"""
+    return shell(data, "tracker", body)
+
+
+def dashboard_calendar(data):
+    selected = data.get("selected_date", TODAY)
+    try:
+        year, month, _day = [int(part) for part in selected.split("-")]
+    except ValueError:
+        year, month = [int(part) for part in TODAY.split("-")[:2]]
+    import calendar as cal
+
+    month_name = time.strftime("%B %Y", time.strptime(f"{year}-{month}-01", "%Y-%m-%d"))
+    first_weekday, days_in_month = cal.monthrange(year, month)
+    start_padding = (first_weekday + 1) % 7
+    cells = ['<span class="calendar-day muted"></span>' for _ in range(start_padding)]
+
+    for day in range(1, days_in_month + 1):
+        key = f"{year}-{month:02d}-{day:02d}"
+        total = totals_for_date(data, key)
+        classes = "calendar-day selected" if key == selected else "calendar-day"
+        calories = f"{total['calories']} cal" if total["count"] else ""
+        cells.append(f"""
+          <a class="{classes}" href="/details.html?date={esc(key)}">
+            <strong>{day}</strong>
+            <small>{esc(calories)}</small>
+          </a>""")
+
+    return f"""
+      <section class="mini-calendar">
+        <div class="panel-heading compact-heading">
+          <div><p class="eyebrow">Calendar</p><h2>Calories by date</h2></div>
+        </div>
+        <div class="calendar-head compact-calendar-head">
+          <span></span>
+          <strong>{esc(month_name)}</strong>
+          <span></span>
+        </div>
+        <div class="calendar-weekdays"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span></div>
+        <div class="calendar-grid">{''.join(cells)}</div>
+      </section>"""
+
+
+def details_page(data, date_key):
+    data["selected_date"] = date_key
+    total = totals_for_date(data, date_key)
+    body = f"""
+      <section class="topbar" aria-label="Selected date summary">
+        <div>
+          <p class="eyebrow">{esc(date_title(date_key))}</p>
+          <h2>Meal Details</h2>
+        </div>
+        <div class="summary-strip">
+          <div><span>{total['calories']}</span><small>calories</small></div>
+          <div><span>{total['protein']}g</span><small>protein</small></div>
+          <div><span>{total['count']}</span><small>meals</small></div>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="panel-heading">
+          <div><p class="eyebrow">Selected Date</p><h2>Meals consumed</h2></div>
+          <a class="ghost-link" href="/">Back to Dashboard</a>
+        </div>
+        {meal_list(data)}
       </section>"""
     return shell(data, "tracker", body)
 
@@ -474,6 +548,12 @@ class BeFitHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path in ["/", "/index.html"]:
             self.html_response(tracker_page(data))
+        elif parsed.path in ["/details", "/details.html"]:
+            query = parse_qs(parsed.query)
+            date_key = query.get("date", [data.get("selected_date", TODAY)])[0]
+            data["selected_date"] = date_key
+            save_data(data)
+            self.html_response(details_page(data, date_key))
         elif parsed.path in ["/history", "/history.html"]:
             self.redirect("/")
         elif parsed.path == "/styles.css":

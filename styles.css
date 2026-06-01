@@ -69,6 +69,10 @@ body[data-theme="dark"] .insight-card {
   background: #202d28;
 }
 
+body[data-theme="dark"] .empty-state {
+  background: #202d28;
+}
+
 button,
 input,
 select {
@@ -173,6 +177,12 @@ small {
   background: #edf5ea;
 }
 
+body[data-theme="dark"] .nav-link.active,
+body[data-theme="dark"] .nav-link:hover {
+  color: #edf7ef;
+  background: #263a32;
+}
+
 .profile-panel,
 .panel {
   background: var(--panel);
@@ -226,18 +236,43 @@ select:focus {
   border-radius: 8px;
 }
 
+.segmented label,
 .goal-option {
+  display: grid;
+  min-height: 40px;
+  place-items: center;
   min-height: 40px;
   color: var(--muted);
   background: transparent;
   border: 0;
   border-radius: 7px;
   font-weight: 800;
+  text-align: center;
 }
 
+.segmented input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.segmented label:has(input:checked),
 .goal-option.active {
   color: #fff;
   background: var(--green);
+}
+
+body[data-theme="dark"] .segmented {
+  background: #25342e;
+}
+
+body[data-theme="dark"] .segmented label {
+  color: #d7e4da;
+}
+
+body[data-theme="dark"] .segmented label:has(input:checked) {
+  color: #08130e;
+  background: #80d69c;
 }
 
 main {
@@ -352,6 +387,7 @@ main {
 
 .primary-action,
 .ghost-action,
+.ghost-link,
 .primary-link {
   min-height: 44px;
   padding: 10px 14px;
@@ -379,6 +415,21 @@ main {
   color: var(--green-dark);
   background: #f7fbf4;
   border: 1px solid var(--line);
+}
+
+.ghost-link {
+  display: grid;
+  place-items: center;
+  color: var(--green-dark);
+  background: #f7fbf4;
+  border: 1px solid var(--line);
+  text-decoration: none;
+}
+
+body[data-theme="dark"] .ghost-action,
+body[data-theme="dark"] .ghost-link {
+  color: #edf7ef;
+  background: #202d28;
 }
 
 .meter-group {
@@ -443,6 +494,7 @@ main {
   border: 1px solid var(--line);
   border-radius: 8px;
   text-align: left;
+  text-decoration: none;
 }
 
 .calendar-day:hover {
@@ -466,6 +518,32 @@ main {
 
 body[data-theme="dark"] .calendar-day {
   background: #202d28;
+}
+
+body[data-theme="dark"] .calendar-day.selected {
+  color: #08130e;
+  background: #80d69c;
+}
+
+.mini-calendar {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.compact-heading {
+  margin-bottom: 0;
+}
+
+.compact-calendar-head {
+  margin-bottom: 0;
+}
+
+.mini-calendar .calendar-day {
+  min-height: 54px;
+  padding: 7px;
 }
 
 .summary-card {

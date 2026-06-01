@@ -1,0 +1,24 @@
+{
+  "goal": "loss",
+  "theme": "dark",
+  "selected_date": "2026-06-01",
+  "profile": {
+    "weight": 70.0,
+    "height": 170.0,
+    "age": 25.0,
+    "gender": "male",
+    "routine": "sedentary"
+  },
+  "meals": [
+    {
+      "id": "1780314829734",
+      "name": "Poha",
+      "calories": 375,
+      "protein": 9,
+      "quantity": 300.0,
+      "unit": "g",
+      "type": "Breakfast",
+      "date": "2026-06-01"
+    }
+  ]
+}
