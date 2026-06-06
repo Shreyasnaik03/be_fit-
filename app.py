@@ -2,15 +2,21 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 import argparse
+import hashlib
+import hmac
 import html
 import json
 import mimetypes
+import os
+import secrets
 import time
 
 
 ROOT = Path(__file__).resolve().parent
 DATA_FILE = ROOT / "befit_data.json"
+USERS_FILE = ROOT / "befit_users.json"
 TODAY = time.strftime("%Y-%m-%d")
+SESSIONS = {}
 
 DISHES = [
     {"name": "poha", "calories": 250, "protein": 6, "unit": "g", "quantity": 200},
@@ -77,6 +83,34 @@ def load_data():
 
 def save_data(data):
     DATA_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
+def load_users():
+    if not USERS_FILE.exists():
+        return []
+    try:
+        return json.loads(USERS_FILE.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
+def save_users(users):
+    USERS_FILE.write_text(json.dumps(users, indent=2), encoding="utf-8")
+
+
+def normalize_email(value):
+    return value.strip().lower()
+
+
+def hash_password(password, salt=None):
+    salt_bytes = bytes.fromhex(salt) if salt else os.urandom(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt_bytes, 210000)
+    return salt_bytes.hex(), digest.hex()
+
+
+def password_matches(password, user):
+    _salt, candidate = hash_password(password, user["salt"])
+    return hmac.compare_digest(candidate, user["password_hash"])
 
 
 def esc(value):
@@ -232,8 +266,21 @@ def option(value, label, selected):
     return f'<option value="{esc(value)}" {"selected" if value == selected else ""}>{esc(label)}</option>'
 
 
-def shell(data, active, body):
+def shell(data, active, body, user=None):
     theme = data.get("theme", "fresh")
+    account = ""
+    if user:
+        account = f"""
+        <div class="account-panel">
+          <div class="account-avatar">{esc(user.get('name', 'U')[:1].upper())}</div>
+          <div class="account-copy">
+            <strong>{esc(user.get('name', 'User'))}</strong>
+            <span>{esc(user.get('email', ''))}</span>
+          </div>
+          <form method="post" action="/logout">
+            <button class="logout-button" type="submit" title="Log out" aria-label="Log out">&#x2192;</button>
+          </form>
+        </div>"""
     return f"""<!doctype html>
 <html lang="en">
   <head>
@@ -257,10 +304,87 @@ def shell(data, active, body):
           <a href="/#diet" class="nav-link">Diet Sheet</a>
           <a href="/#progress" class="nav-link">Progress</a>
         </nav>
+        {account}
         {profile_form(data)}
       </aside>
       <main>{body}</main>
     </div>
+  </body>
+</html>"""
+
+
+def auth_page(mode="login", error="", values=None):
+    values = values or {}
+    is_signup = mode == "signup"
+    title = "Create your account" if is_signup else "Welcome back"
+    subtitle = "Start building a healthier routine." if is_signup else "Sign in to continue to your tracker."
+    alternate = (
+        'Already have an account? <a href="/login">Sign in</a>'
+        if is_signup
+        else 'New to BE FIT? <a href="/signup">Create an account</a>'
+    )
+    name_field = ""
+    if is_signup:
+        name_field = f"""
+              <label>Full name
+                <input name="name" type="text" autocomplete="name" value="{esc(values.get('name', ''))}" placeholder="Your name" required />
+              </label>"""
+    confirm_field = ""
+    if is_signup:
+        confirm_field = """
+              <label>Confirm password
+                <input name="confirm_password" type="password" autocomplete="new-password" placeholder="Enter it again" required />
+              </label>"""
+    error_box = f'<div class="auth-error" role="alert">{esc(error)}</div>' if error else ""
+    return f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{esc(title)} | BE FIT</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="auth-body" data-theme="fresh">
+    <main class="auth-layout">
+      <section class="auth-intro">
+        <div class="brand auth-brand">
+          <div class="brand-mark">BF</div>
+          <div><h1>BE FIT</h1><p>Fitness, made measurable.</p></div>
+        </div>
+        <div class="auth-message">
+          <p class="eyebrow">Your daily momentum</p>
+          <h2>Plan meals. Track progress. Feel stronger.</h2>
+          <p>Keep your nutrition, goals, and everyday wins together in one focused dashboard.</p>
+        </div>
+        <div class="auth-stats" aria-label="Tracker features">
+          <div><strong>Calories</strong><span>Daily targets</span></div>
+          <div><strong>Protein</strong><span>Simple tracking</span></div>
+          <div><strong>Progress</strong><span>Built around you</span></div>
+        </div>
+      </section>
+      <section class="auth-form-section">
+        <div class="auth-card">
+          <div class="auth-heading">
+            <p class="eyebrow">{'Join BE FIT' if is_signup else 'Member access'}</p>
+            <h1>{esc(title)}</h1>
+            <p>{esc(subtitle)}</p>
+          </div>
+          {error_box}
+          <form class="auth-form" method="post" action="/{'signup' if is_signup else 'login'}">
+            {name_field}
+            <label>Email address
+              <input name="email" type="email" autocomplete="email" value="{esc(values.get('email', ''))}" placeholder="you@example.com" required />
+            </label>
+            <label>Password
+              <input name="password" type="password" autocomplete="{'new-password' if is_signup else 'current-password'}" placeholder="At least 8 characters" minlength="8" required />
+            </label>
+            {confirm_field}
+            <button class="primary-action auth-submit" type="submit">{'Create account' if is_signup else 'Sign in'}</button>
+          </form>
+          <p class="auth-switch">{alternate}</p>
+        </div>
+      </section>
+    </main>
   </body>
 </html>"""
 
@@ -319,7 +443,7 @@ def topbar(data, title):
       </section>"""
 
 
-def tracker_page(data):
+def tracker_page(data, user=None):
     plan = calculate_plan(data)
     body = topbar(data, "Food Tracking Dashboard")
     body += f"""
@@ -376,7 +500,7 @@ def tracker_page(data):
         <div class="panel-heading"><div><p class="eyebrow">Improvements</p><h2>Healthy lifestyle suggestions</h2></div></div>
         <div class="suggestion-grid">{suggestion_cards(data, plan)}</div>
       </section>"""
-    return shell(data, "tracker", body)
+    return shell(data, "tracker", body, user)
 
 
 def dashboard_calendar(data):
@@ -418,7 +542,7 @@ def dashboard_calendar(data):
       </section>"""
 
 
-def details_page(data, date_key):
+def details_page(data, date_key, user=None):
     data["selected_date"] = date_key
     total = totals_for_date(data, date_key)
     body = f"""
@@ -440,7 +564,44 @@ def details_page(data, date_key):
         </div>
         {meal_list(data)}
       </section>"""
-    return shell(data, "tracker", body)
+    return shell(data, "tracker", body, user)
+
+
+def edit_meal_page(data, meal, user=None):
+    meal_type = meal.get("type", "Breakfast")
+    unit = meal.get("unit", "piece")
+    body = f"""
+      <section class="topbar">
+        <div>
+          <p class="eyebrow">Food Log</p>
+          <h2>Edit Meal</h2>
+        </div>
+      </section>
+      <section class="panel edit-meal-panel">
+        <div class="panel-heading">
+          <div><p class="eyebrow">Meal Input</p><h2>Update meal details</h2></div>
+          <a class="ghost-link" href="/">Cancel</a>
+        </div>
+        <form class="meal-form" method="post" action="/edit-meal">
+          <input name="id" type="hidden" value="{esc(meal.get('id', ''))}" />
+          <label>Dish name
+            <input name="dish_name" type="text" list="dishSuggestions" value="{esc(meal.get('name', ''))}" required />
+            <datalist id="dishSuggestions">{''.join(f'<option value="{esc(title_case(dish["name"]))}"></option>' for dish in DISHES)}</datalist>
+          </label>
+          <div class="form-row">
+            <label>Quantity<input name="quantity" type="number" min="1" max="5000" step="1" value="{esc(meal.get('quantity', 1))}" /></label>
+            <label>Unit<select name="unit">{''.join(option(item, item, unit) for item in UNITS)}</select></label>
+            <label>Meal type<select name="meal_type">{''.join(option(item, item, meal_type) for item in MEAL_TYPES)}</select></label>
+          </div>
+          <label>Date<input name="date" type="date" value="{esc(meal.get('date', TODAY))}" /></label>
+          <div class="estimate-box">
+            <strong>Calories and protein will be recalculated when you save.</strong>
+            <span>The meal will move automatically if you change its date or meal type.</span>
+          </div>
+          <button class="primary-action" type="submit">Save Changes</button>
+        </form>
+      </section>"""
+    return shell(data, "tracker", body, user)
 
 
 def suggestion(data, plan):
@@ -502,7 +663,10 @@ def meal_item(meal):
             <span>{esc(meal.get('name', 'Meal'))}</span>
             <small class="meal-meta">{esc(quantity)}</small>
           </div>
-          <form method="post" action="/delete-meal"><input type="hidden" name="id" value="{esc(meal.get('id', ''))}" /><button class="delete-meal" type="submit">&times;</button></form>
+          <div class="meal-actions">
+            <a class="edit-meal" href="/edit-meal?id={esc(meal.get('id', ''))}">Edit</a>
+            <form method="post" action="/delete-meal"><input type="hidden" name="id" value="{esc(meal.get('id', ''))}" /><button class="delete-meal" type="submit" title="Delete meal" aria-label="Delete meal">&times;</button></form>
+          </div>
         </div>
         <div class="meal-stats">
           <span class="stat-chip">{esc(meal.get('calories', 0))} cal</span>
@@ -517,19 +681,35 @@ class BeFitHandler(BaseHTTPRequestHandler):
         body = self.rfile.read(length).decode("utf-8")
         return parse_qs(body)
 
-    def redirect(self, path):
+    def redirect(self, path, cookie=None):
         self.send_response(303)
         self.send_header("Location", path)
+        if cookie:
+            self.send_header("Set-Cookie", cookie)
         self.end_headers()
 
-    def html_response(self, content):
+    def html_response(self, content, status=200):
         encoded = content.encode("utf-8")
-        self.send_response(200)
+        self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(encoded)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(encoded)
+
+    def session_token(self):
+        cookie = self.headers.get("Cookie", "")
+        for part in cookie.split(";"):
+            key, separator, value = part.strip().partition("=")
+            if separator and key == "befit_session":
+                return value
+        return ""
+
+    def current_user(self):
+        email = SESSIONS.get(self.session_token())
+        if not email:
+            return None
+        return next((user for user in load_users() if user.get("email") == email), None)
 
     def file_response(self, path):
         file_path = ROOT / path.lstrip("/")
@@ -546,26 +726,94 @@ class BeFitHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         data = load_data()
         parsed = urlparse(self.path)
-        if parsed.path in ["/", "/index.html"]:
-            self.html_response(tracker_page(data))
+        user = self.current_user()
+        if parsed.path == "/styles.css":
+            self.file_response("styles.css")
+        elif parsed.path in ["/login", "/login.html"]:
+            if user:
+                self.redirect("/")
+            else:
+                self.html_response(auth_page("login"))
+        elif parsed.path in ["/signup", "/signup.html"]:
+            if user:
+                self.redirect("/")
+            else:
+                self.html_response(auth_page("signup"))
+        elif not user:
+            self.redirect("/login")
+        elif parsed.path in ["/", "/index.html"]:
+            self.html_response(tracker_page(data, user))
         elif parsed.path in ["/details", "/details.html"]:
             query = parse_qs(parsed.query)
             date_key = query.get("date", [data.get("selected_date", TODAY)])[0]
             data["selected_date"] = date_key
             save_data(data)
-            self.html_response(details_page(data, date_key))
+            self.html_response(details_page(data, date_key, user))
+        elif parsed.path == "/edit-meal":
+            query = parse_qs(parsed.query)
+            meal_id = query.get("id", [""])[0]
+            meal = next((item for item in data["meals"] if item.get("id") == meal_id), None)
+            if not meal:
+                self.send_error(404, "Meal not found")
+            else:
+                self.html_response(edit_meal_page(data, meal, user))
         elif parsed.path in ["/history", "/history.html"]:
             self.redirect("/")
-        elif parsed.path == "/styles.css":
-            self.file_response("styles.css")
         else:
             self.send_error(404)
 
     def do_POST(self):
-        data = load_data()
         form = self.read_form()
         path = urlparse(self.path).path
 
+        if path == "/signup":
+            name = text(form, "name").strip()
+            email = normalize_email(text(form, "email"))
+            password = text(form, "password")
+            confirm_password = text(form, "confirm_password")
+            values = {"name": name, "email": email}
+            users = load_users()
+            if len(name) < 2:
+                self.html_response(auth_page("signup", "Please enter your full name.", values), 400)
+            elif "@" not in email or "." not in email.rsplit("@", 1)[-1]:
+                self.html_response(auth_page("signup", "Enter a valid email address.", values), 400)
+            elif len(password) < 8:
+                self.html_response(auth_page("signup", "Password must be at least 8 characters.", values), 400)
+            elif password != confirm_password:
+                self.html_response(auth_page("signup", "Passwords do not match.", values), 400)
+            elif any(user.get("email") == email for user in users):
+                self.html_response(auth_page("signup", "An account with this email already exists.", values), 409)
+            else:
+                salt, password_hash = hash_password(password)
+                users.append({"name": name, "email": email, "salt": salt, "password_hash": password_hash})
+                save_users(users)
+                token = secrets.token_urlsafe(32)
+                SESSIONS[token] = email
+                self.redirect("/", f"befit_session={token}; Path=/; HttpOnly; SameSite=Lax")
+            return
+
+        if path == "/login":
+            email = normalize_email(text(form, "email"))
+            password = text(form, "password")
+            user = next((item for item in load_users() if item.get("email") == email), None)
+            if not user or not password_matches(password, user):
+                self.html_response(auth_page("login", "Email or password is incorrect.", {"email": email}), 401)
+            else:
+                token = secrets.token_urlsafe(32)
+                SESSIONS[token] = email
+                self.redirect("/", f"befit_session={token}; Path=/; HttpOnly; SameSite=Lax")
+            return
+
+        if path == "/logout":
+            SESSIONS.pop(self.session_token(), None)
+            self.redirect("/login", "befit_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0")
+            return
+
+        if not self.current_user():
+            self.redirect("/login")
+            return
+
+        data = load_data()
         if path == "/profile":
             data["goal"] = text(form, "goal", data["goal"])
             data["theme"] = text(form, "theme", data["theme"])
@@ -592,6 +840,30 @@ class BeFitHandler(BaseHTTPRequestHandler):
                 "type": text(form, "meal_type", "Breakfast"),
                 "date": date,
             })
+            save_data(data)
+            self.redirect("/")
+        elif path == "/edit-meal":
+            meal_id = text(form, "id", "")
+            meal = next((item for item in data["meals"] if item.get("id") == meal_id), None)
+            if not meal:
+                self.send_error(404, "Meal not found")
+                return
+            date = text(form, "date", meal.get("date", TODAY))
+            estimate = meal_estimate(
+                text(form, "dish_name", meal.get("name", "")),
+                number(form, "quantity", meal.get("quantity", 1)),
+                text(form, "unit", meal.get("unit", "piece")),
+            )
+            meal.update({
+                "name": estimate["name"],
+                "calories": estimate["calories"],
+                "protein": estimate["protein"],
+                "quantity": estimate["quantity"],
+                "unit": estimate["unit"],
+                "type": text(form, "meal_type", meal.get("type", "Breakfast")),
+                "date": date,
+            })
+            data["selected_date"] = date
             save_data(data)
             self.redirect("/")
         elif path == "/delete-meal":

@@ -1,21 +1,21 @@
 {
   "goal": "loss",
-  "theme": "dark",
+  "theme": "fresh",
   "selected_date": "2026-06-01",
   "profile": {
-    "weight": 70.0,
-    "height": 170.0,
-    "age": 25.0,
-    "gender": "male",
+    "weight": 55.0,
+    "height": 167.0,
+    "age": 24.0,
+    "gender": "female",
     "routine": "sedentary"
   },
   "meals": [
     {
       "id": "1780314829734",
       "name": "Poha",
-      "calories": 375,
-      "protein": 9,
-      "quantity": 300.0,
+      "calories": 438,
+      "protein": 10,
+      "quantity": 350.0,
       "unit": "g",
       "type": "Breakfast",
       "date": "2026-06-01"
