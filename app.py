@@ -9,7 +9,9 @@ import json
 import mimetypes
 import os
 import secrets
+import smtplib
 import time
+from email.message import EmailMessage
 
 
 ROOT = Path(__file__).resolve().parent
@@ -17,6 +19,14 @@ DATA_FILE = ROOT / "befit_data.json"
 USERS_FILE = ROOT / "befit_users.json"
 TODAY = time.strftime("%Y-%m-%d")
 SESSIONS = {}
+RESET_CODES = {}
+
+SMTP_HOST = os.getenv("BEFIT_SMTP_HOST", "smtp.example.com")
+SMTP_PORT = int(os.getenv("BEFIT_SMTP_PORT", "587"))
+SMTP_USERNAME = os.getenv("BEFIT_SMTP_USERNAME", "")
+SMTP_PASSWORD = os.getenv("BEFIT_SMTP_PASSWORD", "")
+SMTP_USE_TLS = os.getenv("BEFIT_SMTP_USE_TLS", "true").lower() in ("true", "1", "yes")
+EMAIL_FROM = os.getenv("BEFIT_EMAIL_FROM", "no-reply@example.com")
 
 DISHES = [
     {"name": "poha", "calories": 250, "protein": 6, "unit": "g", "quantity": 200},
@@ -100,6 +110,11 @@ def save_users(users):
 
 def normalize_email(value):
     return value.strip().lower()
+
+
+def normalize_phone(value):
+    digits = ''.join(ch for ch in str(value or '') if ch.isdigit())
+    return digits if digits else ''
 
 
 def hash_password(password, salt=None):
@@ -329,12 +344,14 @@ def auth_page(mode="login", error="", values=None):
               <label>Full name
                 <input name="name" type="text" autocomplete="name" value="{esc(values.get('name', ''))}" placeholder="Your name" required />
               </label>"""
-    confirm_field = ""
+
+    phone_field = ""
     if is_signup:
-        confirm_field = """
-              <label>Confirm password
-                <input name="confirm_password" type="password" autocomplete="new-password" placeholder="Enter it again" required />
+        phone_field = f"""
+              <label>Phone number
+                <input name="phone" type="tel" autocomplete="tel" value="{esc(values.get('phone', ''))}" placeholder="1234567890" />
               </label>"""
+
     error_box = f'<div class="auth-error" role="alert">{esc(error)}</div>' if error else ""
     return f"""<!doctype html>
 <html lang="en">
@@ -375,13 +392,216 @@ def auth_page(mode="login", error="", values=None):
             <label>Email address
               <input name="email" type="email" autocomplete="email" value="{esc(values.get('email', ''))}" placeholder="you@example.com" required />
             </label>
+            {phone_field}
             <label>Password
               <input name="password" type="password" autocomplete="{'new-password' if is_signup else 'current-password'}" placeholder="At least 8 characters" minlength="8" required />
             </label>
-            {confirm_field}
             <button class="primary-action auth-submit" type="submit">{'Create account' if is_signup else 'Sign in'}</button>
           </form>
+          {'' if is_signup else '<p class="auth-helper"><a href="/forgot">Forgot password?</a></p>'}
           <p class="auth-switch">{alternate}</p>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>"""
+
+
+def mask_contact(contact, method):
+    if method == "email":
+        local, sep, domain = contact.partition("@")
+        if not sep:
+            return contact
+        if len(local) <= 2:
+            return local[0] + "***@" + domain
+        return local[0] + "***" + local[-1] + "@" + domain
+    if len(contact) <= 4:
+        return "*" * len(contact)
+    return "*" * (len(contact) - 4) + contact[-4:]
+
+
+def send_reset_email(to_email, otp):
+    if not SMTP_USERNAME or not SMTP_PASSWORD or not SMTP_HOST:
+        raise RuntimeError("SMTP configuration is not set. Please set BEFIT_SMTP_HOST, BEFIT_SMTP_USERNAME, and BEFIT_SMTP_PASSWORD.")
+    message = EmailMessage()
+    message["Subject"] = "BE FIT password reset code"
+    message["From"] = EMAIL_FROM
+    message["To"] = to_email
+    message.set_content(f"Your BE FIT password reset code is: {otp}\n\nIf you did not request this, please ignore this message.")
+
+    server = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10)
+    try:
+        if SMTP_USE_TLS:
+            server.starttls()
+        server.login(SMTP_USERNAME, SMTP_PASSWORD)
+        server.send_message(message)
+    finally:
+        server.quit()
+
+
+def get_reset_record(token):
+    record = RESET_CODES.get(token)
+    if not record:
+        return None
+    if record["expires"] < time.time():
+        RESET_CODES.pop(token, None)
+        return None
+    return record
+
+
+def forgot_page(error="", values=None):
+    values = values or {}
+    reset_method = values.get("reset_method", "email")
+    error_box = f'<div class="auth-error" role="alert">{esc(error)}</div>' if error else ""
+    return f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Reset password | BE FIT</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="auth-body" data-theme="fresh">
+    <main class="auth-layout">
+      <section class="auth-intro">
+        <div class="brand auth-brand">
+          <div class="brand-mark">BF</div>
+          <div><h1>BE FIT</h1><p>Verify your account before resetting your password.</p></div>
+        </div>
+        <div class="auth-message">
+          <p class="eyebrow">Secure reset</p>
+          <h2>Confirm your identity with email or phone.</h2>
+          <p>Choose the contact method you used during signup, then enter the verification code you receive.</p>
+        </div>
+      </section>
+      <section class="auth-form-section">
+        <div class="auth-card">
+          <div class="auth-heading">
+            <p class="eyebrow">Password recovery</p>
+            <h1>Reset password</h1>
+            <p>First verify your account, then choose a new password.</p>
+          </div>
+          {error_box}
+          <form class="auth-form" method="post" action="/forgot">
+            <label>Reset via
+              <select name="reset_method">
+                <option value="email" {'selected' if reset_method != 'phone' else ''}>Email</option>
+                <option value="phone" {'selected' if reset_method == 'phone' else ''}>Phone</option>
+              </select>
+            </label>
+            <label>Email address
+              <input name="email" type="email" autocomplete="email" value="{esc(values.get('email', ''))}" placeholder="you@example.com" />
+            </label>
+            <label>Phone number
+              <input name="phone" type="tel" autocomplete="tel" value="{esc(values.get('phone', ''))}" placeholder="1234567890" />
+            </label>
+            <button class="primary-action auth-submit" type="submit">Send verification code</button>
+          </form>
+          <p class="auth-switch"><a href="/login">Back to sign in</a></p>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>"""
+
+
+def verify_reset_page(token, error="", values=None):
+    values = values or {}
+    record = get_reset_record(token)
+    if not record:
+        return forgot_page("Verification session expired. Please start again.")
+    contact = mask_contact(record["contact"], record["method"])
+    delivery = "email" if record["method"] == "email" else "phone"
+    error_box = f'<div class="auth-error" role="alert">{esc(error)}</div>' if error else ""
+    return f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verify code | BE FIT</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="auth-body" data-theme="fresh">
+    <main class="auth-layout">
+      <section class="auth-intro">
+        <div class="brand auth-brand">
+          <div class="brand-mark">BF</div>
+          <div><h1>BE FIT</h1><p>Two-step verification for password reset.</p></div>
+        </div>
+        <div class="auth-message">
+          <p class="eyebrow">Verify your identity</p>
+          <h2>Enter the code sent to {esc(delivery)}</h2>
+          <p>We sent a one-time passcode to {esc(contact)}.</p>
+        </div>
+      </section>
+      <section class="auth-form-section">
+        <div class="auth-card">
+          <div class="auth-heading">
+            <p class="eyebrow">Verification required</p>
+            <h1>Enter your code</h1>
+          </div>
+          {error_box}
+          <form class="auth-form" method="post" action="/verify-reset">
+            <input type="hidden" name="token" value="{esc(token)}" />
+            <label>Verification code
+              <input name="otp" type="text" autocomplete="one-time-code" value="{esc(values.get('otp', ''))}" placeholder="000000" minlength="4" maxlength="6" required />
+            </label>
+            <button class="primary-action auth-submit" type="submit">Verify code</button>
+          </form>
+          {'' if record['method'] == 'email' else f'<p class="auth-note">For local demo, your code is: {esc(record["otp"])}</p>'}
+          <p class="auth-switch"><a href="/forgot">Start over</a></p>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>"""
+
+
+def reset_password_page(token, error="", values=None):
+    values = values or {}
+    record = get_reset_record(token)
+    if not record or not record.get("verified"):
+        return forgot_page("Verification required. Please start over.")
+    error_box = f'<div class="auth-error" role="alert">{esc(error)}</div>' if error else ""
+    return f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Choose new password | BE FIT</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="auth-body" data-theme="fresh">
+    <main class="auth-layout">
+      <section class="auth-intro">
+        <div class="brand auth-brand">
+          <div class="brand-mark">BF</div>
+          <div><h1>BE FIT</h1><p>Secure password update.</p></div>
+        </div>
+        <div class="auth-message">
+          <p class="eyebrow">Reset password</p>
+          <h2>Choose a new password.</h2>
+          <p>Your account is verified. Enter a new password and confirm it to continue.</p>
+        </div>
+      </section>
+      <section class="auth-form-section">
+        <div class="auth-card">
+          <div class="auth-heading">
+            <p class="eyebrow">New password</p>
+            <h1>Set a secure password</h1>
+          </div>
+          {error_box}
+          <form class="auth-form" method="post" action="/reset-password">
+            <input type="hidden" name="token" value="{esc(token)}" />
+            <label>New password
+              <input name="password" type="password" autocomplete="new-password" placeholder="At least 8 characters" minlength="8" required />
+            </label>
+            <label>Confirm password
+              <input name="confirm_password" type="password" autocomplete="new-password" placeholder="Enter it again" required />
+            </label>
+            <button class="primary-action auth-submit" type="submit">Update password</button>
+          </form>
+          <p class="auth-switch"><a href="/login">Back to sign in</a></p>
         </div>
       </section>
     </main>
@@ -734,6 +954,25 @@ class BeFitHandler(BaseHTTPRequestHandler):
                 self.redirect("/")
             else:
                 self.html_response(auth_page("login"))
+        elif parsed.path in ["/forgot", "/forgot.html"]:
+            if user:
+                self.redirect("/")
+            else:
+                self.html_response(forgot_page())
+        elif parsed.path in ["/verify-reset", "/verify-reset.html"]:
+            if user:
+                self.redirect("/")
+            else:
+                query = parse_qs(parsed.query)
+                token = query.get("token", [""])[0]
+                self.html_response(verify_reset_page(token))
+        elif parsed.path in ["/reset-password", "/reset-password.html"]:
+            if user:
+                self.redirect("/")
+            else:
+                query = parse_qs(parsed.query)
+                token = query.get("token", [""])[0]
+                self.html_response(reset_password_page(token))
         elif parsed.path in ["/signup", "/signup.html"]:
             if user:
                 self.redirect("/")
@@ -769,9 +1008,10 @@ class BeFitHandler(BaseHTTPRequestHandler):
         if path == "/signup":
             name = text(form, "name").strip()
             email = normalize_email(text(form, "email"))
+            phone = normalize_phone(text(form, "phone"))
             password = text(form, "password")
             confirm_password = text(form, "confirm_password")
-            values = {"name": name, "email": email}
+            values = {"name": name, "email": email, "phone": phone}
             users = load_users()
             if len(name) < 2:
                 self.html_response(auth_page("signup", "Please enter your full name.", values), 400)
@@ -785,11 +1025,98 @@ class BeFitHandler(BaseHTTPRequestHandler):
                 self.html_response(auth_page("signup", "An account with this email already exists.", values), 409)
             else:
                 salt, password_hash = hash_password(password)
-                users.append({"name": name, "email": email, "salt": salt, "password_hash": password_hash})
+                user_record = {"name": name, "email": email, "salt": salt, "password_hash": password_hash}
+                if phone:
+                    user_record["phone"] = phone
+                users.append(user_record)
                 save_users(users)
                 token = secrets.token_urlsafe(32)
                 SESSIONS[token] = email
                 self.redirect("/", f"befit_session={token}; Path=/; HttpOnly; SameSite=Lax")
+            return
+
+        if path == "/forgot":
+            reset_method = text(form, "reset_method", "email")
+            email = normalize_email(text(form, "email"))
+            phone = normalize_phone(text(form, "phone"))
+            values = {"email": email, "phone": phone, "reset_method": reset_method}
+            users = load_users()
+            user = None
+            if reset_method == "phone":
+                if not phone:
+                    self.html_response(forgot_page("Enter your phone number for verification.", values), 400)
+                    return
+                user = next((item for item in users if normalize_phone(item.get("phone")) == phone), None)
+            else:
+                if "@" not in email or "." not in email.rsplit("@", 1)[-1]:
+                    self.html_response(forgot_page("Enter a valid email address.", values), 400)
+                    return
+                user = next((item for item in users if item.get("email") == email), None)
+
+            if not user:
+                self.html_response(forgot_page("No account found with that email or phone number.", values), 404)
+                return
+            token = secrets.token_urlsafe(32)
+            otp = f"{secrets.randbelow(1000000):06d}"
+            contact = phone if reset_method == "phone" else email
+            RESET_CODES[token] = {
+                "user_email": user["email"],
+                "method": reset_method,
+                "contact": contact,
+                "otp": otp,
+                "verified": False,
+                "expires": time.time() + 300,
+            }
+            if reset_method == "email":
+                try:
+                    send_reset_email(email, otp)
+                except Exception as exc:
+                    self.html_response(forgot_page(f"Unable to send verification email. Check SMTP settings: {esc(str(exc))}", values), 500)
+                    return
+            self.redirect(f"/verify-reset?token={token}")
+            return
+
+        if path == "/verify-reset":
+            token = text(form, "token")
+            otp = text(form, "otp")
+            record = get_reset_record(token)
+            if not record:
+                self.html_response(forgot_page("Verification session expired. Please start again."), 400)
+                return
+            if otp != record["otp"]:
+                self.html_response(verify_reset_page(token, "The code entered is incorrect. Please try again.", {"otp": otp}), 400)
+                return
+            record["verified"] = True
+            self.redirect(f"/reset-password?token={token}")
+            return
+
+        if path == "/reset-password":
+            token = text(form, "token")
+            password = text(form, "password")
+            confirm_password = text(form, "confirm_password")
+            record = get_reset_record(token)
+            if not record or not record.get("verified"):
+                self.html_response(forgot_page("Verification required. Please start over."), 400)
+                return
+            if len(password) < 8:
+                self.html_response(reset_password_page(token, "Password must be at least 8 characters."), 400)
+                return
+            if password != confirm_password:
+                self.html_response(reset_password_page(token, "Passwords do not match."), 400)
+                return
+            users = load_users()
+            user = next((item for item in users if item.get("email") == record["user_email"]), None)
+            if not user:
+                self.html_response(forgot_page("Unable to find your account. Please start again."), 400)
+                return
+            salt, password_hash = hash_password(password)
+            user["salt"] = salt
+            user["password_hash"] = password_hash
+            save_users(users)
+            RESET_CODES.pop(token, None)
+            session_token = secrets.token_urlsafe(32)
+            SESSIONS[session_token] = user["email"]
+            self.redirect("/", f"befit_session={session_token}; Path=/; HttpOnly; SameSite=Lax")
             return
 
         if path == "/login":
