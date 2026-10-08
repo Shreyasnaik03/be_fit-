@@ -812,37 +812,128 @@ def dashboard_calendar(data):
         year, month, _day = [int(part) for part in selected.split("-")]
     except ValueError:
         year, month = [int(part) for part in TODAY.split("-")[:2]]
-    import calendar as cal
 
-    month_name = time.strftime("%B %Y", time.strptime(f"{year}-{month}-01", "%Y-%m-%d"))
-    first_weekday, days_in_month = cal.monthrange(year, month)
-    start_padding = (first_weekday + 1) % 7
-    cells = ['<span class="calendar-day muted"></span>' for _ in range(start_padding)]
+    day_totals = {}
+    for meal in data.get("meals", []):
+        key = meal.get("date", TODAY)
+        if key:
+            day_totals[key] = day_totals.get(key, 0) + int(meal.get("calories", 0) or 0)
 
-    for day in range(1, days_in_month + 1):
-        key = f"{year}-{month:02d}-{day:02d}"
-        total = totals_for_date(data, key)
-        classes = "calendar-day selected" if key == selected else "calendar-day"
-        calories = f"{total['calories']} cal" if total["count"] else ""
-        cells.append(f"""
-          <a class="{classes}" href="/details.html?date={esc(key)}">
-            <strong>{day}</strong>
-            <small>{esc(calories)}</small>
-          </a>""")
+    year_panel = "".join(
+        f'<button type="button" class="calendar-year-option" data-year="{year_value}">{year_value}</button>'
+        for year_value in range(year - 5, year + 6)
+    )
 
     return f"""
-      <section class="mini-calendar">
+      <section class="mini-calendar" data-selected-date="{esc(selected)}" data-view-year="{year}" data-view-month="{month}" data-day-totals='{esc(json.dumps(day_totals))}'>
         <div class="panel-heading compact-heading">
           <div><p class="eyebrow">Calendar</p><h2>Calories by date</h2></div>
         </div>
         <div class="calendar-head compact-calendar-head">
-          <span></span>
-          <strong>{esc(month_name)}</strong>
-          <span></span>
+          <button type="button" class="calendar-nav" data-step="-1" aria-label="Previous month">&#8249;</button>
+          <button type="button" class="calendar-year-trigger" aria-label="Choose year">{esc(time.strftime('%B %Y', time.strptime(f'{year}-{month:02d}-01', '%Y-%m-%d')))}</button>
+          <button type="button" class="calendar-nav" data-step="1" aria-label="Next month">&#8250;</button>
         </div>
+        <div class="calendar-year-panel hidden" aria-live="polite">{year_panel}</div>
         <div class="calendar-weekdays"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span></div>
-        <div class="calendar-grid">{''.join(cells)}</div>
-      </section>"""
+        <div class="calendar-grid"></div>
+      </section>
+      <script>
+        (function () {{
+          const calendarSections = document.querySelectorAll('.mini-calendar');
+          if (!calendarSections.length) return;
+
+          const calendarSection = calendarSections[calendarSections.length - 1];
+          const grid = calendarSection.querySelector('.calendar-grid');
+          const yearPanel = calendarSection.querySelector('.calendar-year-panel');
+          const yearTrigger = calendarSection.querySelector('.calendar-year-trigger');
+          const navButtons = calendarSection.querySelectorAll('.calendar-nav');
+          const selectedDate = calendarSection.dataset.selectedDate || '';
+          const dayTotals = JSON.parse(calendarSection.dataset.dayTotals || '{{}}');
+          const state = {{
+            year: Number(calendarSection.dataset.viewYear || new Date().getFullYear()),
+            month: Number(calendarSection.dataset.viewMonth || new Date().getMonth() + 1),
+          }};
+
+          function pad(value) {{
+            return String(value).padStart(2, '0');
+          }}
+
+          function monthLabel(year, month) {{
+            return new Date(year, month - 1, 1).toLocaleString('en-US', {{ month: 'long', year: 'numeric' }});
+          }}
+
+          function renderYearPanel() {{
+            const options = yearPanel.querySelectorAll('.calendar-year-option');
+            options.forEach((button) => {{
+              button.classList.toggle('active', Number(button.dataset.year) === state.year);
+            }});
+          }}
+
+          function renderGrid() {{
+            const firstDay = new Date(state.year, state.month - 1, 1).getDay();
+            const daysInMonth = new Date(state.year, state.month, 0).getDate();
+            const cells = [];
+
+            for (let blank = 0; blank < firstDay; blank += 1) {{
+              cells.push('<span class="calendar-day muted"></span>');
+            }}
+
+            for (let day = 1; day <= daysInMonth; day += 1) {{
+              const dateKey = `${{state.year}}-${{pad(state.month)}}-${{pad(day)}}`;
+              const total = dayTotals[dateKey] || 0;
+              const selectedClass = dateKey === selectedDate ? ' selected' : '';
+              const caloriesLabel = total ? `<small>${{total}} cal</small>` : '';
+              cells.push(`
+                <a class="calendar-day${{selectedClass}}" href="/details.html?date=${{dateKey}}">
+                  <strong>${{day}}</strong>
+                  ${{caloriesLabel}}
+                </a>
+              `);
+            }}
+
+            grid.innerHTML = cells.join('');
+            yearTrigger.textContent = monthLabel(state.year, state.month);
+            renderYearPanel();
+          }}
+
+          function toggleYearPanel(forceOpen) {{
+            const shouldOpen = typeof forceOpen === 'boolean' ? forceOpen : yearPanel.classList.contains('hidden');
+            yearPanel.classList.toggle('hidden', !shouldOpen);
+          }}
+
+          yearTrigger.addEventListener('click', function () {{
+            toggleYearPanel();
+          }});
+
+          navButtons.forEach((button) => {{
+            button.addEventListener('click', function () {{
+              const step = Number(button.dataset.step || 0);
+              const nextDate = new Date(state.year, state.month - 1 + step, 1);
+              state.year = nextDate.getFullYear();
+              state.month = nextDate.getMonth() + 1;
+              renderGrid();
+            }});
+          }});
+
+          yearPanel.addEventListener('click', function (event) {{
+            const button = event.target.closest('.calendar-year-option');
+            if (!button) return;
+            state.year = Number(button.dataset.year || state.year);
+            yearPanel.classList.add('hidden');
+            renderGrid();
+          }});
+
+          document.addEventListener('click', function (event) {{
+            if (!event.target.closest('.calendar-year-trigger') && !event.target.closest('.calendar-year-panel')) {{
+              yearPanel.classList.add('hidden');
+            }}
+          }});
+
+          renderGrid();
+        }})();
+      </script>
+    """
 
 
 def details_page(data, date_key, user=None):

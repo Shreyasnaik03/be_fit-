@@ -637,8 +637,63 @@ body[data-theme="dark"] .ghost-link {
   margin-bottom: 12px;
 }
 
-.calendar-head strong {
+.calendar-nav,
+.calendar-year-trigger,
+.calendar-year-option {
+  font: inherit;
+}
+
+.calendar-nav {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.calendar-year-trigger {
+  padding: 8px 12px;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-weight: 800;
   text-align: center;
+  cursor: pointer;
+}
+
+.calendar-year-panel {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.calendar-year-panel.hidden {
+  display: none;
+}
+
+.calendar-year-option {
+  padding: 8px 6px;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.calendar-year-option.active {
+  color: #fff;
+  background: var(--green);
+  border-color: var(--green);
 }
 
 .calendar-weekdays,
