@@ -1,0 +1,19 @@
+{
+  "name": "BE FIT",
+  "short_name": "BE FIT",
+  "description": "Nutrition, calories, steps, and daily activity tracker",
+  "start_url": "/login",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f4f7f2",
+  "theme_color": "#2f8a54",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

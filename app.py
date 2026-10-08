@@ -75,7 +75,49 @@ def default_data():
             "routine": "sedentary",
         },
         "meals": [],
+        "activity": {},
     }
+
+
+def ensure_daily_activity(data):
+    if not isinstance(data.get("activity"), dict):
+        data["activity"] = {}
+    return data
+
+
+def get_day_activity(data, date_key):
+    ensure_daily_activity(data)
+    entry = data["activity"].get(date_key, {})
+    if not isinstance(entry, dict):
+        entry = {}
+    return {
+        "steps": int(entry.get("steps", 0) or 0),
+        "calories_burned": int(entry.get("calories_burned", 0) or 0),
+        "updated_at": entry.get("updated_at") or "",
+        "source": entry.get("source") or "web",
+    }
+
+
+def sync_device_activity(data, payload):
+    ensure_daily_activity(data)
+    if not payload:
+        return data
+
+    date_key = str(payload.get("date") or TODAY)
+    existing = data["activity"].get(date_key, {})
+    if not isinstance(existing, dict):
+        existing = {}
+
+    steps = int(float(payload.get("steps", existing.get("steps", 0) or 0)))
+    calories = int(float(payload.get("calories_burned", existing.get("calories_burned", 0) or 0)))
+
+    data["activity"][date_key] = {
+        "steps": steps,
+        "calories_burned": calories,
+        "updated_at": payload.get("updated_at") or time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "source": payload.get("source") or "phone",
+    }
+    return data
 
 
 def load_data():
@@ -301,7 +343,10 @@ def shell(data, active, body, user=None):
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#2f8a54" />
+    <meta name="description" content="BE FIT calorie tracker with step and activity syncing across devices." />
     <title>BE FIT</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body data-theme="{esc(theme)}">
@@ -324,6 +369,13 @@ def shell(data, active, body, user=None):
       </aside>
       <main>{body}</main>
     </div>
+    <script>
+      if ('serviceWorker' in navigator) {{
+        window.addEventListener('load', function () {{
+          navigator.serviceWorker.register('/service-worker.js').catch(function () {{}});
+        }});
+      }}
+    </script>
   </body>
 </html>"""
 
@@ -649,6 +701,7 @@ def profile_form(data):
 
 def topbar(data, title):
     total = totals(data)
+    activity = get_day_activity(data, data.get("selected_date", TODAY))
     return f"""
       <section class="topbar" aria-label="Daily summary">
         <div>
@@ -658,6 +711,8 @@ def topbar(data, title):
         <div class="summary-strip">
           <div><span>{total['calories']}</span><small>calories</small></div>
           <div><span>{total['protein']}g</span><small>protein</small></div>
+          <div><span>{activity['steps']}</span><small>steps</small></div>
+          <div><span>{activity['calories_burned']} cal</span><small>burned</small></div>
           <div><span>{total['count']}</span><small>meals</small></div>
         </div>
       </section>"""
@@ -665,6 +720,7 @@ def topbar(data, title):
 
 def tracker_page(data, user=None):
     plan = calculate_plan(data)
+    selected_activity = get_day_activity(data, data.get("selected_date", TODAY))
     body = topbar(data, "Food Tracking Dashboard")
     body += f"""
       <section id="tracker" class="grid two-column">
@@ -704,6 +760,25 @@ def tracker_page(data, user=None):
         </div>
       </section>
       <section class="grid two-column">
+        <div class="panel movement-panel">
+          <div class="panel-heading">
+            <div><p class="eyebrow">Movement</p><h2>Daily activity sync</h2></div>
+            <span class="status-pill">Phone + Web</span>
+          </div>
+          <div class="movement-grid">
+            <div class="movement-card">
+              <span>Steps</span>
+              <strong>{selected_activity['steps']}</strong>
+              <small>Synced across devices</small>
+            </div>
+            <div class="movement-card accent">
+              <span>Calories burned</span>
+              <strong>{selected_activity['calories_burned']} cal</strong>
+              <small>Updated from phone</small>
+            </div>
+          </div>
+          <div class="sync-note">Phone data is written to the same backend, so web and mobile stay aligned.</div>
+        </div>
         <div class="panel">
           <div class="panel-heading">
             <div><p class="eyebrow">Food Log</p><h2>Meals & cheat meals</h2></div>
@@ -711,14 +786,16 @@ def tracker_page(data, user=None):
           </div>
           {meal_list(data)}
         </div>
+      </section>
+      <section class="grid two-column">
         <div id="diet" class="panel">
           <div class="panel-heading"><div><p class="eyebrow">Routine</p><h2>Balanced diet sheet</h2></div></div>
           {diet_sheet(data, plan)}
         </div>
-      </section>
-      <section id="progress" class="panel progress-panel">
-        <div class="panel-heading"><div><p class="eyebrow">Improvements</p><h2>Healthy lifestyle suggestions</h2></div></div>
-        <div class="suggestion-grid">{suggestion_cards(data, plan)}</div>
+        <div id="progress" class="panel progress-panel">
+          <div class="panel-heading"><div><p class="eyebrow">Improvements</p><h2>Healthy lifestyle suggestions</h2></div></div>
+          <div class="suggestion-grid">{suggestion_cards(data, plan)}</div>
+        </div>
       </section>"""
     return shell(data, "tracker", body, user)
 
@@ -917,6 +994,15 @@ class BeFitHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(encoded)
 
+    def json_response(self, payload, status=200):
+        body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
     def session_token(self):
         cookie = self.headers.get("Cookie", "")
         for part in cookie.split(";"):
@@ -949,6 +1035,21 @@ class BeFitHandler(BaseHTTPRequestHandler):
         user = self.current_user()
         if parsed.path == "/styles.css":
             self.file_response("styles.css")
+        elif parsed.path == "/manifest.webmanifest":
+            self.file_response("manifest.webmanifest")
+        elif parsed.path == "/service-worker.js":
+            self.file_response("service-worker.js")
+        elif parsed.path == "/api/dashboard":
+            payload = {
+                "selected_date": data.get("selected_date", TODAY),
+                "goal": data.get("goal", "loss"),
+                "profile": data.get("profile", {}),
+                "meals": data.get("meals", []),
+                "activity": data.get("activity", {}),
+                "totals": totals(data),
+                "activity_today": get_day_activity(data, data.get("selected_date", TODAY)),
+            }
+            self.json_response(payload)
         elif parsed.path in ["/login", "/login.html"]:
             if user:
                 self.redirect("/")
@@ -1002,8 +1103,30 @@ class BeFitHandler(BaseHTTPRequestHandler):
             self.send_error(404)
 
     def do_POST(self):
-        form = self.read_form()
         path = urlparse(self.path).path
+
+        if path == "/api/sync":
+            content_type = self.headers.get("Content-Type", "")
+            if "application/json" not in content_type:
+                self.json_response({"ok": False, "error": "JSON body required"}, 400)
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            except (ValueError, UnicodeDecodeError):
+                self.json_response({"ok": False, "error": "Invalid JSON payload"}, 400)
+                return
+            data = load_data()
+            sync_device_activity(data, payload)
+            save_data(data)
+            self.json_response({
+                "ok": True,
+                "selected_date": data.get("selected_date", TODAY),
+                "activity": get_day_activity(data, payload.get("date") or data.get("selected_date", TODAY)),
+            })
+            return
+
+        form = self.read_form()
 
         if path == "/signup":
             name = text(form, "name").strip()

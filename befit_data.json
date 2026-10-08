@@ -3,11 +3,11 @@
   "theme": "fresh",
   "selected_date": "2026-06-01",
   "profile": {
-    "weight": 55.0,
-    "height": 167.0,
-    "age": 24.0,
-    "gender": "female",
-    "routine": "sedentary"
+    "weight": 108.0,
+    "height": 185.0,
+    "age": 23.0,
+    "gender": "male",
+    "routine": "moderate"
   },
   "meals": [
     {
@@ -20,5 +20,13 @@
       "type": "Breakfast",
       "date": "2026-06-01"
     }
-  ]
+  ],
+  "activity": {
+    "2026-10-08": {
+      "steps": 9999,
+      "calories_burned": 505,
+      "updated_at": "2026-10-08T05:27:03",
+      "source": "phone"
+    }
+  }
 }
