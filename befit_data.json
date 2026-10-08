@@ -1,13 +1,13 @@
 {
   "goal": "loss",
-  "theme": "fresh",
+  "theme": "dark",
   "selected_date": "2026-06-01",
   "profile": {
-    "weight": 108.0,
-    "height": 185.0,
-    "age": 23.0,
+    "weight": 70.0,
+    "height": 170.0,
+    "age": 25.0,
     "gender": "male",
-    "routine": "moderate"
+    "routine": "sedentary"
   },
   "meals": [
     {

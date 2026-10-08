@@ -338,6 +338,7 @@ def shell(data, active, body, user=None):
             <button class="logout-button" type="submit" title="Log out" aria-label="Log out">&#x2192;</button>
           </form>
         </div>"""
+    theme_options = "".join(f'<button class="theme-option" type="submit" name="theme" value="{esc(key)}" {'data-selected' if key == theme else ''}>{esc(label)}</button>' for key, label in THEMES.items())
     return f"""<!doctype html>
 <html lang="en">
   <head>
@@ -358,6 +359,14 @@ def shell(data, active, body, user=None):
             <h1>BE FIT</h1>
             <p>Python powered tracker.</p>
           </div>
+        </div>
+        <div class="top-app-actions">
+          <details class="theme-menu">
+            <summary class="theme-toggle" aria-label="Choose a theme">☼</summary>
+            <form class="theme-menu-panel" method="post" action="/profile">
+              {theme_options}
+            </form>
+          </details>
         </div>
         <nav class="nav-list" aria-label="Primary">
           <a href="/" class="nav-link {'active' if active == 'tracker' else ''}">Tracker</a>
@@ -692,9 +701,6 @@ def profile_form(data):
         </select></label>
         <label>Suggested calorie target<input name="calorie_target" type="number" value="{plan['calorie_target']}" /></label>
         <label>Suggested protein target (g)<input name="protein_target" type="number" value="{plan['protein_target']}" /></label>
-        <label>Theme<select name="theme">
-          {''.join(option(key, label, theme) for key, label in THEMES.items())}
-        </select></label>
         <button class="primary-action" type="submit">Update Plan</button>
       </form>"""
 
